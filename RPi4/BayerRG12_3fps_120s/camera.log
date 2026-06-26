@@ -1,0 +1,33 @@
+[2026-06-17 14:36:14.764 INFO] (Camera): Camera opened: DEV_1AB22C0707F3 - 1800 U-1242c
+[2026-06-17 14:36:14.935 INFO] (Camera): Set ExposureAuto -> Off
+[2026-06-17 14:36:14.937 INFO] (Camera): Set GainAuto -> Off
+[2026-06-17 14:36:14.940 INFO] (Camera): Set BalanceWhiteAuto -> Off
+[2026-06-17 14:36:14.945 INFO] (Camera): Set Gamma -> 1.0
+[2026-06-17 14:36:14.983 ERROR] (Camera): Failed to set feature Hue to 0.0: Invalid access while calling 'set()' of Feature 'Hue'. Read access: allowed. Write access: not allowed. 
+[2026-06-17 14:36:14.985 ERROR] (Camera): Failed to set feature Saturation to 1.0: Invalid access while calling 'set()' of Feature 'Saturation'. Read access: allowed. Write access: not allowed. 
+[2026-06-17 14:36:14.987 INFO] (Camera): Set Sharpness -> 0.0
+[2026-06-17 14:36:14.993 INFO] (Camera): Set SensorShutterMode -> GlobalShutter
+[2026-06-17 14:36:14.995 INFO] (Camera): Set ExposureTime -> 1000
+[2026-06-17 14:36:15.002 INFO] (Camera): Set Gain -> 20
+[2026-06-17 14:36:15.010 INFO] (Camera): Set OffsetX -> 0
+[2026-06-17 14:36:15.018 INFO] (Camera): Set OffsetY -> 0
+[2026-06-17 14:36:15.027 INFO] (Camera): Set Width -> 4128
+[2026-06-17 14:36:15.036 INFO] (Camera): Set Height -> 3008
+[2026-06-17 14:36:15.044 INFO] (Camera): Set BinningHorizontal -> 1
+[2026-06-17 14:36:15.051 INFO] (Camera): Set BinningVertical -> 1
+[2026-06-17 14:36:15.059 INFO] (Camera): Set ReverseX -> False
+[2026-06-17 14:36:15.067 INFO] (Camera): Set ReverseY -> False
+[2026-06-17 14:36:15.595 INFO] (Camera): Set PixelFormat -> BayerRG12
+[2026-06-17 14:36:15.602 INFO] (Camera): Set SensorBitDepth -> Bpp12
+[2026-06-17 14:36:15.605 INFO] (Camera): Set AdaptiveNoiseSuppressionFactor -> 1.0
+[2026-06-17 14:36:15.608 INFO] (Camera): Set AcquisitionFrameRateEnable -> True
+[2026-06-17 14:36:15.611 INFO] (Camera): Set AcquisitionFrameRate -> 3
+[2026-06-17 14:36:15.931 INFO] (Camera): Continuous streaming started.
+[2026-06-17 14:38:16.087 INFO] (Camera): Continuous streaming stopped.
+[2026-06-17 14:41:28.661 INFO] (Camera): Streaming stats: 361 frames
+[2026-06-17 14:41:29.208 INFO] (Camera): fps            = 3.00±0.00
+[2026-06-17 14:41:29.209 INFO] (Camera): median fps     = 3.00
+[2026-06-17 14:41:29.209 INFO] (Camera): writes         = 361
+[2026-06-17 14:41:29.209 INFO] (Camera): mean_write     = 865.8 ms
+[2026-06-17 14:41:29.209 INFO] (Camera): median_write   = 753.9 ms
+[2026-06-17 14:41:29.209 INFO] (Camera): queue_overflow = 99.4%
