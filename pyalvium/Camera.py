@@ -443,13 +443,13 @@ class Camera:
             stats['max_write_s']     = float('nan')
             stats['mean_write_fps']  = float('nan')
 
-        self.timestamp_logger.info(f"Streaming stats: {stats['n_frames']} frames")
-        self.timestamp_logger.info(f"fps            = {stats['mean_fps']:.2f}±{stats['std_fps']:.2f}")
-        self.timestamp_logger.info(f"median fps     = {stats['median_fps']:.2f}")
-        self.timestamp_logger.info(f"writes         = {stats['n_writes']}")
-        self.timestamp_logger.info(f"mean_write     = {stats['mean_write_s']*1e3:.1f} ms")
-        self.timestamp_logger.info(f"median_write   = {stats['median_write_s']*1e3:.1f} ms")
-        self.timestamp_logger.info(f"queue_overflow = {stats['queue_overflow_ratio']:.1%}")
+        self.logger.info(f"Streaming stats: {stats['n_frames']} frames")
+        self.logger.info(f"fps            = {stats['mean_fps']:.2f}±{stats['std_fps']:.2f}")
+        self.logger.info(f"median fps     = {stats['median_fps']:.2f}")
+        self.logger.info(f"writes         = {stats['n_writes']}")
+        self.logger.info(f"mean_write     = {stats['mean_write_s']*1e3:.1f} ms")
+        self.logger.info(f"median_write   = {stats['median_write_s']*1e3:.1f} ms")
+        self.logger.info(f"queue_overflow = {stats['queue_overflow_ratio']:.1%}")
         
 
         # convert all lists to np.arrays
