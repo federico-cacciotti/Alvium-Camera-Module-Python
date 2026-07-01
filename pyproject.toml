@@ -1,7 +1,9 @@
 [build-system]
 requires = [
-    "numpy==2.2.4"
+    "numpy==2.2.4",
+    "setuptools>=61"
     ]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "alvium-camera-module-python"
