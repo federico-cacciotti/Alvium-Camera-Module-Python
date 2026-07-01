@@ -11,7 +11,7 @@ import vmbpy
 import psutil
 import os
 
-import parameters as params
+from . import parameters as params
 
 
 class Camera:
