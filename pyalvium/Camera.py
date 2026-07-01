@@ -341,7 +341,7 @@ class Camera:
                 frame, host_timestamp, camera_timestamp = item
                 arr  = frame.as_numpy_ndarray().tobytes()
                 path = f'{output_path}/frame_{i:06d}.raw'
-                self.logger.info(f'host_time_ns={host_timestamp} camera_time={camera_timestamp} frame={i:06d}')
+                self.timestamp_logger.info(f'host_time_ns={host_timestamp} camera_time={camera_timestamp} frame={i:06d}')
                 futures.append(executor.submit(self._write_frame, arr, path))
                 i += 1
             # executor.__exit__ waits for all submitted futures before returning
