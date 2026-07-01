@@ -1,0 +1,13 @@
+[build-system]
+requires = [
+    "numpy==2.2.4"
+    ]
+
+[project]
+name = "alvium-camera-module-python"
+version = "0.1.0"
+description = "A simple python module for controlling the Alvium camera using Vmbpy"
+authors = [
+    {name = "Federico Cacciotti", email = "federico.cacciotti@unimib.it"}
+]
+dependencies = []
