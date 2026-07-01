@@ -1,20 +1,18 @@
+import queue
 import sys
 import numpy as np
 import time
 import threading
 import logging
 from contextlib import contextmanager
-from queue import Queue, Empty
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 import vmbpy
 import psutil
 import os
 
 import parameters as params
 
-# VmbPy logs every internal error via a logger named 'vmbpyLog'. With propagate=True
-# (Python default) those records bubble up to the root logger and pollute the output.
-# We only want our own application-level logs, so disable propagation for vmbpy's logger.
-logging.getLogger('vmbpyLog').propagate = False
 
 class Camera:
     """
@@ -32,32 +30,87 @@ class Camera:
             frame = camera.get_frame()
     """
 
-    def __init__(self, camera_id=None, output_dir=None):
-
-        logging_filename = os.path.join(output_dir, params.LOGGING_FILENAME) if output_dir else params.LOGGING_FILENAME
-
-        # configure logging
-        logging.basicConfig(level=getattr(logging, params.LOGGING_LEVEL), 
-                            format=params.LOGGING_FORMAT, 
-                            datefmt=params.LOGGING_DATEFMT,
-                            handlers=[logging.StreamHandler(sys.stdout),
-                                    logging.FileHandler(logging_filename)])
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, camera_id=params.CAMERA_ID, output_path=params.DEFAULT_OUTPUT_PATH, writing_threads=params.DEFAULT_WRITING_THREADS, settings={}):
 
         self.camera_id = camera_id
-        self.output_dir = output_dir
+        self.output_path = output_path
+
+        # create output directory if it doesn't exist
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+
+        # configure logging
+        # VmbPy logs every internal error via a logger named 'vmbpyLog'. With propagate=True
+        # (Python default) those records bubble up to the root logger and pollute the output.
+        # We only want our own application-level logs, so disable propagation for vmbpy's logger.
+        logging.getLogger('vmbpyLog').propagate = False
+
+        # check if root logger already exists, if not, configure it with defaults from parameters.py
+        if not logging.getLogger().hasHandlers():
+            logger = logging.getLogger()
+            logger.setLevel(getattr(logging, params.LOGGING_LEVEL))
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setFormatter(logging.Formatter(params.LOGGING_FORMAT, params.LOGGING_DATEFMT))
+            logger.addHandler(handler)
+
+        self.logger = logging.getLogger(__name__)
+
+        # define second logger for frame timings
+        timestamp_logger_filename = os.path.join(output_path, params.LOGGING_FILENAME) if output_path else params.LOGGING_FILENAME
+        self.timestamp_logger = logging.getLogger('frame_timestamps')
+        self.timestamp_logger.setLevel(getattr(logging, params.LOGGING_LEVEL))
+        timestamp_handler = logging.FileHandler(timestamp_logger_filename)
+        timestamp_handler.setFormatter(logging.Formatter(params.LOGGING_FORMAT, params.LOGGING_DATEFMT))
+        self.timestamp_logger.addHandler(timestamp_handler)
+
+        self.writing_threads = writing_threads
         self._vmb_instance = vmbpy.VmbSystem.get_instance()
         self._vmb = None   # set in __enter__
         self.cam = None    # set in __enter__
         self.features = None
+        # define a queue to hold frames for writing to disk
+        self.frame_queue = queue.Queue()
+        self.dispatcher = None
+
+        self.settings = settings
 
     def __enter__(self):
         self._vmb = self._vmb_instance.__enter__()
         self.cam = self._open_camera()
         self.cam.__enter__()
         self.logger.info(f'Camera opened: {self.cam.get_id()} - {self.cam.get_model()}')
+        self.logger.info(f'Output path: {self.output_path}')
+        self.logger.info(f'Writing threads: {self.writing_threads}')
         self.features = self._read_all_features()
-        self._run_startup_checks()
+
+        self.logger.info('Setting camera features...')
+        values_dict = {
+            'ExposureAuto': 'Off',
+            'GainAuto': 'Off',
+            'BalanceWhiteAuto': 'Off',
+            'Gamma': 1.0,
+            'Hue': 0.0,
+            'Saturation': self.settings.get('saturation', params.DEFAULT_SATURATION) if self.settings.get('saturation', params.DEFAULT_SATURATION) is not None else params.DEFAULT_SATURATION,
+            'Sharpness': self.settings.get('sharpness', params.DEFAULT_SHARPNESS_FACTOR) if self.settings.get('sharpness', params.DEFAULT_SHARPNESS_FACTOR) is not None else params.DEFAULT_SHARPNESS_FACTOR,
+            'SensorShutterMode': 'GlobalShutter',
+            'ExposureTime': self.settings.get('exposure', params.DEFAULT_EXPOSURE_TIME_US) if self.settings.get('exposure', params.DEFAULT_EXPOSURE_TIME_US) is not None else params.DEFAULT_EXPOSURE_TIME_US,
+            'Gain': self.settings.get('gain', params.DEFAULT_GAIN) if self.settings.get('gain', params.DEFAULT_GAIN) is not None else params.DEFAULT_GAIN,
+            'OffsetX': params.DEFAULT_ROI_X_OFFSET,
+            'OffsetY': params.DEFAULT_ROI_Y_OFFSET,
+            'Width':   self.get_value('WidthMax'),
+            'Height':  self.get_value('HeightMax'),
+            'BinningHorizontal': params.DEFAULT_BINNING_SIZE_X,
+            'BinningVertical': params.DEFAULT_BINNING_SIZE_Y,
+            'ReverseX': params.DEFAULT_REVERSE_X,
+            'ReverseY': params.DEFAULT_REVERSE_Y,
+            'PixelFormat': self.settings.get('format', params.DEFAULT_PIXEL_FORMAT) if self.settings.get('format', params.DEFAULT_PIXEL_FORMAT) is not None else params.DEFAULT_PIXEL_FORMAT,
+            'SensorBitDepth': 'Bpp12',
+            'AdaptiveNoiseSuppressionFactor': 1.0,
+            'AcquisitionFrameRateEnable': True,
+            'AcquisitionFrameRate': self.settings.get('max_framerate', params.DEFAULT_MAX_FRAMERATE) if self.settings.get('max_framerate', params.DEFAULT_MAX_FRAMERATE) is not None else params.DEFAULT_MAX_FRAMERATE,
+        }
+        self.set_values(values_dict)
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -72,7 +125,7 @@ class Camera:
         if self.camera_id:
             try:
                 cam = self._vmb.get_camera_by_id(self.camera_id)
-                self.logger.debug(f'Found camera {self.camera_id}')
+                self.logger.info(f'Found camera {self.camera_id}')
                 return cam
             except vmbpy.VmbCameraError:
                 self.logger.error(f"Failed to access Camera '{self.camera_id}'. Abort.")
@@ -83,28 +136,10 @@ class Camera:
                 self.logger.error('No cameras accessible. Abort.')
                 sys.exit(1)
             return cams[0]
-
-    def _run_startup_checks(self):
-        # check if shutter mode is set to global
-        # EnumEntry.__str__ decodes a null-padded C char array, strip null bytes before comparing
-        shutter_mode = self.get_value('SensorShutterMode')
-        if str(shutter_mode).rstrip('\x00') != 'GlobalShutter':
-            self.logger.warning(f"Camera shutter mode is set to '{shutter_mode}', but 'GlobalShutter' is recommended")
-
-        # check if the sensor is cropped
-        width = self.get_value('Width')
-        height = self.get_value('Height')
-        width_max = self.get_value('WidthMax')
-        height_max = self.get_value('HeightMax')
-        offset_x = self.get_value('OffsetX')
-        offset_y = self.get_value('OffsetY')
-        if None not in (width, height, width_max, height_max):
-            if width != width_max or height != height_max:
-                self.logger.warning(f"Camera sensor is cropped: Width={width}/{width_max}, Height={height}/{height_max}, OffsetX={offset_x}, OffsetY={offset_y}")
-            
+ 
     def _read_all_features(self):
         """Read all feature values from the already-open camera handle."""
-        self.logger.debug('Downloading camera features...')
+        self.logger.info('Downloading camera features...')
         features = {}
         for feat in self.cam.get_all_features():
             name = feat.get_name()
@@ -118,7 +153,7 @@ class Camera:
                 features[name]['value'] = feat.get()
             except (AttributeError, vmbpy.VmbFeatureError):
                 features[name]['value'] = None
-        self.logger.debug('Finished downloading camera features.')
+        self.logger.info('Finished downloading camera features.')
         return features
 
     def get_all_features(self):
@@ -127,8 +162,8 @@ class Camera:
         return self.features
     
     def log_all_features(self, filename: str = 'camera_features.txt'):
-        filename = os.path.join(self.output_dir, filename) if self.output_dir else filename
-        self.logger.debug(f'Saving camera features to file: {filename}')
+        filename = os.path.join(self.output_path, filename) if self.output_path else filename
+        self.logger.info(f'Saving camera features to file: {filename}')
         if self.features is None:
             self.features = self.get_all_features()
         with open(filename, 'w') as f:
@@ -139,7 +174,7 @@ class Camera:
                 f.write(f"    Description    : {self.features[feat_name]['description']}\n")
                 f.write(f"    SFNC Namespace : {self.features[feat_name]['sfnc_namespace']}\n")
                 f.write(f"    Value          : {str(self.features[feat_name]['value'])}\n\n")
-        self.logger.debug(f'Camera features saved to {filename}')
+        self.logger.info(f'Camera features saved to {filename}')
 
     def get_value(self, feature_name):
         if self.features is None:
@@ -165,95 +200,6 @@ class Camera:
             self.logger.error(f'Failed to get frame: {e}')
             return None
 
-    def get_frames(self, n: int, fps: float = None, timing: bool = False) -> list:
-        """Acquire n frames at maximum speed using asynchronous streaming.
-
-        Uses a pre-announced buffer pool so the camera runs continuously with
-        no gap between frames, unlike calling get_frame() in a loop which
-        stalls acquisition between each synchronous round-trip.
-
-        Args:
-            n:      number of frames to acquire.
-            fps:    if not None, set the camera to this framerate (fps).
-            timing: if True, also return a dict with timing statistics.
-                    The dict contains:
-                      'host_timestamps_s'  : list of n host-side timestamps
-                                             (time.perf_counter(), seconds)
-                                             recorded the moment each frame
-                                             arrives in the callback.
-                      'camera_timestamps'  : list of n camera hardware
-                                             timestamps (ticks, from
-                                             frame.get_timestamp()). Useful
-                                             to measure the true inter-frame
-                                             period independently of host
-                                             scheduling jitter.
-                      'intervals_s'        : list of n-1 host-side inter-frame
-                                             intervals in seconds.
-                      'mean_fps'           : mean fps from host intervals.
-                      'std_fps'            : standard deviation of fps.
-
-        Returns:
-            frames            if timing=False (default)
-            (frames, timing)  if timing=True
-        """
-        frames = []
-        host_timestamps = []
-        camera_timestamps = []
-        done = threading.Event()
-
-        if fps is not None:
-            self.set_values({'AcquisitionFrameRateEnable': True,
-                             'AcquisitionFrameRate': fps})
-        else:
-            self.set_values({'AcquisitionFrameRateEnable': False})
-
-        def handler(cam, stream, frame):
-            if frame.get_status() == vmbpy.FrameStatus.Complete and len(frames) < n:
-                if timing:
-                    host_timestamps.append(time.perf_counter())
-                    try:
-                        camera_timestamps.append(frame.get_timestamp())
-                    except Exception:
-                        camera_timestamps.append(None)
-                frames.append(frame)
-                if len(frames) == n:
-                    done.set()
-            cam.queue_frame(frame)
-
-        buffer_count = min(max(n, 10), 50)
-        self.cam.start_streaming(handler=handler, buffer_count=buffer_count)
-        self.logger.info(f'Streaming started, acquiring {n} frames...')
-        try:
-            done.wait()
-        finally:
-            self.cam.stop_streaming()
-
-        self.logger.info(f'Acquired {len(frames)} frames.')
-
-        if not timing:
-            return frames
-
-        intervals = np.array([host_timestamps[i+1] - host_timestamps[i]
-                     for i in range(len(host_timestamps) - 1)])
-        if intervals.size > 0:
-            fps_values = [1.0 / dt for dt in intervals if dt > 0]
-            mean_fps = sum(fps_values) / len(fps_values)
-            variance = sum((f - mean_fps) ** 2 for f in fps_values) / len(fps_values)
-            std_fps = variance ** 0.5
-        else:
-            mean_fps = std_fps = float('nan')
-
-        self.logger.info(f'Timing: mean fps={mean_fps:.2f}, std={std_fps:.2f}')
-
-        timing_info = {
-            'host_timestamps_s': host_timestamps,
-            'camera_timestamps': camera_timestamps,
-            'intervals_s':       intervals,
-            'mean_fps':          mean_fps,
-            'std_fps':           std_fps,
-        }
-        return frames, timing_info
-
     def start_continuous_streaming(self, callback, buffer_count: int = 10,
                                     timing: bool = False,
                                     monitored_queue: Queue = None):
@@ -261,7 +207,7 @@ class Camera:
 
         Args:
             callback:         called with the VmbPy Frame object for every complete
-                              frame. Runs on the SDK thread — must be fast.
+                              frame. Runs on the SDK thread - must be fast.
             buffer_count:     number of SDK DMA buffers to pre-announce.
             timing:           if True, record per-frame timing data. Retrieve
                               results with get_streaming_stats() after stopping.
@@ -300,7 +246,7 @@ class Camera:
         def handler(cam, stream, frame):
             if frame.get_status() == vmbpy.FrameStatus.Complete:
                 if self._timing_enabled:
-                    self._streaming_stats['host_timestamps_s'].append(time.perf_counter())
+                    self._streaming_stats['host_timestamps_s'].append(time.time_ns())
                     try:
                         self._streaming_stats['camera_timestamps'].append(frame.get_timestamp())
                     except Exception:
@@ -323,6 +269,30 @@ class Camera:
         self.cam.stop_streaming()
         self.logger.info('Continuous streaming stopped.')
 
+    def start_acquisition(self):
+        """Start acquisition on the already-open camera."""
+        logging.info('Starting acquisition...')
+
+        self.dispatcher = threading.Thread(
+            target=self.dispatcher_thread,
+            args=(self.frame_queue, self.output_path, self.writing_threads),
+            daemon=True,
+            name='dispatcher',
+        )
+        self.dispatcher.start()
+
+        self.start_continuous_streaming(
+            callback=lambda f: self.frame_queue.put((f, self._streaming_stats['host_timestamps_s'][-1], self._streaming_stats['camera_timestamps'][-1])),
+            timing=True,
+            monitored_queue=self.frame_queue,
+        )
+
+    def stop_acquisition(self):
+        self.stop_continuous_streaming()
+        time.sleep(0.5)              # give the dispatcher a moment to finish processing frames
+        self.frame_queue.put(None)   # poison pill: stop the dispatcher
+        self.dispatcher.join()  
+        
     @contextmanager
     def timed_write(self):
         """Context manager to time a single disk-write operation.
@@ -343,6 +313,42 @@ class Camera:
             if hasattr(self, '_streaming_stats'):
                 self._streaming_stats['write_timestamps_s'].append(t0)
                 self._streaming_stats['write_durations_s'].append(duration)
+
+    def _write_frame(self, arr, path):
+        """Write a single frame to disk, recording duration via camera.timed_write()."""
+        with self.timed_write():
+            with open(path, 'wb') as f:
+                f.write(arr)
+
+
+    def dispatcher_thread(self, frame_queue, output_path, n_workers):
+        """Pull frames from the queue and dispatch writes to the thread pool.
+
+        Each frame's numpy array is extracted here (in the dispatcher thread)
+        before submission so the SDK frame buffer is not held by a worker.
+        Workers only touch the already-copied numpy array.
+        """
+        futures = []
+        i = 0
+        with ThreadPoolExecutor(max_workers=n_workers,
+                                thread_name_prefix='nv-writer') as executor:
+            while True:
+                item = frame_queue.get()
+                if item is None:   # poison pill
+                    break
+                frame, host_timestamp, camera_timestamp = item
+                arr  = frame.as_numpy_ndarray().tobytes()
+                path = f'{output_path}/frame_{i:06d}.raw'
+                self.timestamp_logger.info(f'host_time_ns={host_timestamp} camera_time={camera_timestamp} frame={i:06d}')
+                futures.append(executor.submit(self._write_frame, arr, path))
+                i += 1
+            # executor.__exit__ waits for all submitted futures before returning
+
+        # propagate any worker exceptions
+        for fut in futures:
+            exc = fut.exception()
+            if exc:
+                raise exc
 
     def get_streaming_stats(self) -> dict:
         """Return derived statistics from the last continuous streaming run.
@@ -435,13 +441,13 @@ class Camera:
             stats['max_write_s']     = float('nan')
             stats['mean_write_fps']  = float('nan')
 
-        self.logger.info(f"Streaming stats: {stats['n_frames']} frames")
-        self.logger.info(f"fps            = {stats['mean_fps']:.2f}±{stats['std_fps']:.2f}")
-        self.logger.info(f"median fps     = {stats['median_fps']:.2f}")
-        self.logger.info(f"writes         = {stats['n_writes']}")
-        self.logger.info(f"mean_write     = {stats['mean_write_s']*1e3:.1f} ms")
-        self.logger.info(f"median_write   = {stats['median_write_s']*1e3:.1f} ms")
-        self.logger.info(f"queue_overflow = {stats['queue_overflow_ratio']:.1%}")
+        self.timestamp_logger.info(f"Streaming stats: {stats['n_frames']} frames")
+        self.timestamp_logger.info(f"fps            = {stats['mean_fps']:.2f}±{stats['std_fps']:.2f}")
+        self.timestamp_logger.info(f"median fps     = {stats['median_fps']:.2f}")
+        self.timestamp_logger.info(f"writes         = {stats['n_writes']}")
+        self.timestamp_logger.info(f"mean_write     = {stats['mean_write_s']*1e3:.1f} ms")
+        self.timestamp_logger.info(f"median_write   = {stats['median_write_s']*1e3:.1f} ms")
+        self.timestamp_logger.info(f"queue_overflow = {stats['queue_overflow_ratio']:.1%}")
         
 
         # convert all lists to np.arrays

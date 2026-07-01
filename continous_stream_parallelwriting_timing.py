@@ -43,8 +43,7 @@ def dispatcher_thread(frame_queue, output_dir, camera, n_workers):
     """
     futures = []
     i = 0
-    with ThreadPoolExecutor(max_workers=n_workers,
-                             thread_name_prefix='nv-writer') as executor:
+    with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix='nv-writer') as executor:
         while True:
             frame = frame_queue.get()
             if frame is None:   # poison pill
@@ -64,7 +63,6 @@ def dispatcher_thread(frame_queue, output_dir, camera, n_workers):
 
 def main():
     
-
     with Camera(CAMERA_ID) as camera:
         values_dict = {
             'ExposureAuto': 'Off',
