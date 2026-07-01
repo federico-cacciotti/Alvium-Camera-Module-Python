@@ -390,7 +390,7 @@ class Camera:
         stats = dict(s)  # include raw data
 
         # acquisition timing
-        ts = s['host_timestamps_ns']*1e-9  # convert to seconds
+        ts = np.array(s['host_timestamps_ns'])*1e-9  # convert to seconds
         stats['n_frames'] = len(ts)
         if len(ts) > 1:
             intervals = np.diff(ts)
