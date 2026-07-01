@@ -234,7 +234,7 @@ class Camera:
         """
         # reset stats storage
         self._streaming_stats = {
-            'host_timestamps_s':  [],
+            'host_timestamps_ns': [],
             'camera_timestamps':  [],
             'queue_sizes':        [],
             'write_durations_s':  [],
@@ -248,7 +248,7 @@ class Camera:
         def handler(cam, stream, frame):
             if frame.get_status() == vmbpy.FrameStatus.Complete:
                 if self._timing_enabled:
-                    self._streaming_stats['host_timestamps_s'].append(time.time_ns())
+                    self._streaming_stats['host_timestamps_ns'].append(time.time_ns())
                     try:
                         self._streaming_stats['camera_timestamps'].append(frame.get_timestamp())
                     except Exception:
@@ -284,7 +284,7 @@ class Camera:
         self.dispatcher.start()
 
         self.start_continuous_streaming(
-            callback=lambda f: self.frame_queue.put((f, self._streaming_stats['host_timestamps_s'][-1], self._streaming_stats['camera_timestamps'][-1])),
+            callback=lambda f: self.frame_queue.put((f, self._streaming_stats['host_timestamps_ns'][-1], self._streaming_stats['camera_timestamps'][-1])),
             timing=True,
             monitored_queue=self.frame_queue,
         )
@@ -341,7 +341,7 @@ class Camera:
                 frame, host_timestamp, camera_timestamp = item
                 arr  = frame.as_numpy_ndarray().tobytes()
                 path = f'{output_path}/frame_{i:06d}.raw'
-                self.timestamp_logger.info(f'host_time_ns={host_timestamp} camera_time={camera_timestamp} frame={i:06d}')
+                self.logger.info(f'host_time_ns={host_timestamp} camera_time={camera_timestamp} frame={i:06d}')
                 futures.append(executor.submit(self._write_frame, arr, path))
                 i += 1
             # executor.__exit__ waits for all submitted futures before returning
@@ -359,7 +359,7 @@ class Camera:
 
         Returns a dict with:
           Raw data:
-            host_timestamps_s   per-frame host timestamps (perf_counter, s)
+            host_timestamps_ns  per-frame host timestamps (perf_counter, s)
             camera_timestamps   per-frame camera hardware ticks
             queue_sizes         queue depth sampled at each frame arrival
             write_durations_s   duration of each timed_write block (s)
@@ -390,7 +390,7 @@ class Camera:
         stats = dict(s)  # include raw data
 
         # acquisition timing
-        ts = s['host_timestamps_s']
+        ts = s['host_timestamps_ns']*1e-9  # convert to seconds
         stats['n_frames'] = len(ts)
         if len(ts) > 1:
             intervals = np.diff(ts)
@@ -453,7 +453,7 @@ class Camera:
         
 
         # convert all lists to np.arrays
-        for key in ['host_timestamps_s', 'camera_timestamps', 'intervals_s',
+        for key in ['host_timestamps_ns', 'camera_timestamps', 'intervals_s',
                     'queue_sizes', 'write_durations_s', 'write_timestamps_s']:
             stats[key] = np.array(stats[key])
         return stats
