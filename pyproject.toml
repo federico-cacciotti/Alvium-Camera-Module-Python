@@ -6,10 +6,10 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["alvium-camera-module-python"]
+packages = ["pyalvium"]
 
 [project]
-name = "alvium-camera-module-python"
+name = "pyalvium"
 version = "0.1.0"
 description = "A simple python module for controlling the Alvium camera using Vmbpy"
 authors = [
