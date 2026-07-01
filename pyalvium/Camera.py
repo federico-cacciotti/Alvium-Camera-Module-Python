@@ -30,7 +30,7 @@ class Camera:
             frame = camera.get_frame()
     """
 
-    def __init__(self, camera_id=params.CAMERA_ID, output_path=params.DEFAULT_OUTPUT_PATH, writing_threads=params.DEFAULT_WRITING_THREADS, settings={}):
+    def __init__(self, camera_id=params.CAMERA_ID, output_path=params.DEFAULT_OUTPUT_PATH, writing_threads=params.DEFAULT_WRITING_THREADS, settings={}, verbose=params.VERBOSE):
 
         self.camera_id = camera_id
         self.output_path = output_path
@@ -58,6 +58,8 @@ class Camera:
         # define second logger for frame timings
         timestamp_logger_filename = os.path.join(output_path, params.LOGGING_FILENAME) if output_path else params.LOGGING_FILENAME
         self.timestamp_logger = logging.getLogger('frame_timestamps')
+        if not verbose:
+            self.timestamp_logger.propagate = False
         self.timestamp_logger.setLevel(getattr(logging, params.LOGGING_LEVEL))
         timestamp_handler = logging.FileHandler(timestamp_logger_filename)
         timestamp_handler.setFormatter(logging.Formatter(params.LOGGING_FORMAT, params.LOGGING_DATEFMT))

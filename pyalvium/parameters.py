@@ -3,6 +3,7 @@ LOGGING_LEVEL = 'INFO'
 LOGGING_FORMAT = '[%(asctime)s.%(msecs)03d] (%(levelname)s): %(message)s'
 LOGGING_DATEFMT = '%Y-%m-%d %H:%M:%S'
 LOGGING_FILENAME = 'frame_timestamps.log'
+VERBOSE = False
 
 # path defaults
 DEFAULT_OUTPUT_PATH = 'home/polocalc/data/unlabeled_camera_data'
