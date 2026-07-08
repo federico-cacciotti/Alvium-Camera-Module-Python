@@ -293,7 +293,16 @@ class Camera:
         self.stop_continuous_streaming()
         time.sleep(0.5)              # give the dispatcher a moment to finish processing frames
         self.frame_queue.put(None)   # poison pill: stop the dispatcher
-        self.dispatcher.join()  
+        self.dispatcher.join()
+
+    def get_frame(self):
+        """Get a single frame from the camera, blocking until one is available."""
+        frame = self.cam.get_frame()
+        if frame.get_status() == vmbpy.FrameStatus.Complete:
+            return frame
+        else:
+            self.logger.warning(f'Frame status: {frame.get_status()}')
+            return None
         
     @contextmanager
     def timed_write(self):
